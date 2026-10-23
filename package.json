@@ -1,0 +1,15 @@
+{
+  "name": "bilibili-share-to-qq",
+  "version": "1.0.1",
+  "private": true,
+  "description": "在 B 站视频页把视频以卡片形式分享到 QQ 的 Chromium 扩展（MV3）",
+  "scripts": {
+    "test": "node test/core.test.mjs && node test/background.test.mjs",
+    "icons": "node tools/make-icons.mjs",
+    "serve": "node test/serve.mjs 8787"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
+

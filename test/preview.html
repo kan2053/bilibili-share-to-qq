@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>分享卡片预览</title>
+<style>
+  body { margin: 0; padding: 28px; background: #eef0f3; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+  h1 { font-size: 15px; color: #61666d; font-weight: 500; margin: 0 0 14px; }
+  .row { display: flex; flex-direction: column; gap: 22px; max-width: 640px; }
+  .card canvas { width: 100%; height: auto; display: block; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,.14); }
+  .cap { font-size: 12px; color: #9499a0; margin-top: 8px; }
+</style>
+</head>
+<body>
+<h1>B站分享到 QQ 卡片 · 渲染预览（2x 输出，1280×760）</h1>
+<div class="row">
+  <div class="card" id="withCover"></div>
+  <div class="card" id="noCover"></div>
+</div>
+<script src="../src/core.js"></script>
+<script src="../src/card.js"></script>
+<script>
+(async function () {
+  // 用 canvas 合成一张「封面」当素材，避免预览页依赖网络
+  var c = document.createElement('canvas');
+  c.width = 1280; c.height = 720;
+  var x = c.getContext('2d');
+  var g = x.createLinearGradient(0, 0, 1280, 720);
+  g.addColorStop(0, '#1e6fff'); g.addColorStop(0.55, '#7b2ff7'); g.addColorStop(1, '#fb7299');
+  x.fillStyle = g; x.fillRect(0, 0, 1280, 720);
+  x.globalAlpha = 0.18; x.fillStyle = '#fff';
+  for (var i = 0; i < 26; i++) {
+    x.beginPath();
+    x.arc((i * 197) % 1280, (i * 331) % 720, 40 + (i % 5) * 26, 0, Math.PI * 2);
+    x.fill();
+  }
+  x.globalAlpha = 1;
+  x.fillStyle = '#fff';
+  x.font = '700 120px system-ui, sans-serif';
+  x.fillText('BILIBILI', 90, 420);
+  x.font = '500 44px system-ui, sans-serif';
+  x.fillText('video → QQ card', 96, 490);
+  var cover = c.toDataURL('image/png');
+
+  var payload = BQQCore.buildPayload({
+    url: 'https://www.bilibili.com/video/BV1xx411c7mD',
+    title: '【4K】把 B 站视频直接分享成 QQ 卡片，不用再复制链接了',
+    up: '测试UP主',
+    cover: cover,
+    playRaw: '123.4万',
+    duration: 3723,
+    desc: '在视频页点右下角按钮，选中「QQ好友」即可直接把标题、封面、简介和链接以卡片形式发给好友或群。'
+  });
+
+  var a = await BQQCard.renderCard(payload, { scale: 2, coverDataUrl: cover });
+  document.getElementById('withCover').appendChild(a.canvas);
+  document.getElementById('withCover').insertAdjacentHTML('beforeend', '<div class="cap">有封面 · 时长角标 · 三行标题 · 简介</div>');
+
+  var noCover = Object.assign({}, payload, { cover: '', coverShare: '', desc: '' });
+  var b = await BQQCard.renderCard(noCover, { scale: 2 });
+  document.getElementById('noCover').appendChild(b.canvas);
+  document.getElementById('noCover').insertAdjacentHTML('beforeend', '<div class="cap">无封面时的品牌色占位</div>');
+
+  document.title = 'PREVIEW_OK';
+})();
+</script>
+</body>
+</html>

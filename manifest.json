@@ -1,0 +1,66 @@
+{
+  "manifest_version": 3,
+  "name": "B站分享到QQ卡片",
+  "short_name": "B站分享到QQ",
+  "version": "1.0.1",
+  "description": "在 B 站视频页把视频以卡片形式分享到 QQ（模仿手机端 B 站分享面板），不用再复制链接。",
+  "minimum_chrome_version": "110",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "downloads",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "https://*.hdslb.com/*"
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "hdslb_referer",
+        "enabled": true,
+        "path": "rules/headers.json"
+      }
+    ]
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "action": {
+    "default_title": "分享到 QQ（B站）",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://www.bilibili.com/video/*",
+        "*://www.bilibili.com/bangumi/play/*"
+      ],
+      "js": [
+        "src/core.js",
+        "src/card.js",
+        "src/panel.js",
+        "src/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "open-share-panel": {
+      "suggested_key": {
+        "default": "Alt+Shift+B"
+      },
+      "description": "在 B 站视频页打开分享面板"
+    }
+  }
+}
+

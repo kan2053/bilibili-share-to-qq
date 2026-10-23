@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>BQQ 分享面板自测</title>
+<meta property="og:title" content="【测试】卡片分享演示_哔哩哔哩_bilibili">
+<meta property="og:image" content="https://i0.hdslb.com/bfs/archive/test.jpg@672w_378h_1c.webp">
+<meta name="description" content="这是一段用于自测的简介文案。">
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #f4f5f7; color: #18191c; }
+  #mock { max-width: 720px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 20px; }
+  #report { max-width: 900px; margin: 24px auto; padding: 16px; background: #fff; border-radius: 8px;
+            font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+  #shot { max-width: 720px; margin: 0 auto 32px; }
+  #shot canvas { width: 100%; height: auto; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.12); }
+</style>
+</head>
+<body>
+<main id="mock">
+  <h1 class="video-title" title="【测试】卡片分享演示">【测试】卡片分享演示</h1>
+  <div class="up-info--right"><a class="up-name" href="#">测试UP主</a></div>
+  <div class="video-info-detail">
+    <div class="view item"><span class="view-text">123.4万</span></div>
+  </div>
+  <button id="probe" type="button" style="padding:10px 16px">页面按钮（用来验证点击没被面板遮罩吃掉）</button>
+  <div class="bpx-player-ctrl-time-duration">1:02:03</div>
+  <video poster="https://i0.hdslb.com/bfs/archive/test.jpg"></video>
+</main>
+<div id="shot"></div>
+<pre id="report">running…</pre>
+
+<script>
+  // —— 在页面里模拟扩展运行时，让 content.js / panel.js 能在普通页面上跑 ——
+  var sent = [];
+  window.chrome = window.chrome || {};
+  window.chrome.runtime = {
+    lastError: null,
+    onMessage: { addListener: function () {} },
+    sendMessage: function (msg, cb) {
+      sent.push(msg);
+      setTimeout(function () {
+        if (typeof cb === 'function') cb({ ok: true, message: 'stub-ok' });
+      }, 0);
+    }
+  };
+  // 伪造成视频页路径（content.js 用 location.pathname 判断）
+  history.replaceState(null, '', '/video/BV1xx411c7mD');
+</script>
+
+<script>
+(function () {
+  var report = { steps: [] };
+  var log = function (k, v) { report[k] = v; };
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('加载失败: ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function rgba(ctx, x, y) {
+    var d = ctx.getImageData(x, y, 1, 1).data;
+    return [d[0], d[1], d[2], d[3]];
+  }
+
+  function near(a, b, tol) {
+    tol = tol == null ? 12 : tol;
+    return Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol && Math.abs(a[2] - b[2]) <= tol && a[3] === b[3];
+  }
+
+  function finish() {
+    var pre = document.getElementById('report');
+    pre.textContent = JSON.stringify(report, null, 1);
+    document.title = report.ok ? 'HARNESS_OK' : 'HARNESS_FAIL';
+  }
+
+  (async function () {
+    try {
+      await loadScript('../src/core.js');
+      await loadScript('../src/card.js');
+      await loadScript('../src/panel.js');
+      await loadScript('../src/content.js');
+
+      // 给 content.js 的 start() + 首轮 refresh 一点时间
+      await new Promise(function (r) { setTimeout(r, 400); });
+
+      var html = document.documentElement;
+      log('ready', html.getAttribute('data-bqq-ready'));
+      log('vid', html.getAttribute('data-bqq-vid'));
+
+      var host = document.getElementById('bqq-share-root');
+      log('panel_hosted', !!host);
+      var sr = host && host.shadowRoot;
+      log('shadow_root', !!sr);
+
+      if (sr) {
+        var titleEl = sr.querySelector('.bqq-title');
+        var metaEl = sr.querySelector('.bqq-meta');
+        var coverImg = sr.querySelector('.bqq-cover img');
+        log('panel_title', titleEl && titleEl.textContent);
+        log('panel_meta', metaEl && metaEl.textContent);
+        log('panel_cover', coverImg && coverImg.getAttribute('src'));
+        log('panel_actions', Array.prototype.map.call(sr.querySelectorAll('.bqq-act'), function (b) {
+          return b.querySelector('.bqq-act-label').textContent;
+        }));
+
+        // 点击「QQ好友」→ 应触发后台消息 BQQ_OPEN_QQ
+        var first = sr.querySelector('.bqq-act');
+        first.click();
+        await new Promise(function (r) { setTimeout(r, 120); });
+        var msg = sent[sent.length - 1];
+        log('action_message_type', msg && msg.type);
+        log('action_message_url', msg && msg.payload && msg.payload.url);
+        log('toast', sr.querySelector('.bqq-toast').textContent);
+
+        // —— 穿透性回归测试：面板关闭时绝不能被透明遮罩吃掉点击 ——
+        window.__probeClicks = 0;
+        var probe = document.getElementById('probe');
+        probe.addEventListener('click', function () { window.__probeClicks++; });
+
+        function inHost(el) {
+          return !!el && (el === host || (el.getRootNode && el.getRootNode() === host.shadowRoot));
+        }
+        function hit(x, y) {
+          var el = document.elementFromPoint(x, y);
+          return { tag: el && el.tagName, shadow: inHost(el) };
+        }
+
+        var pr = probe.getBoundingClientRect();
+        var pcx = pr.left + pr.width / 2;
+        var pcy = pr.top + pr.height / 2;
+        log('hit_closed_probe', hit(pcx, pcy));
+        log('hit_closed_corner', hit(8, 8));
+        log('hit_closed_center', hit(window.innerWidth / 2, window.innerHeight / 2));
+
+        // 按命中元素真实点击一次：若被遮罩挡住，页面按钮不会收到事件
+        var hitEl = document.elementFromPoint(pcx, pcy);
+        if (hitEl) hitEl.click();
+        log('probe_clicks_closed', window.__probeClicks);
+
+        // 打开面板 → 遮罩应接管点击；关闭后恢复
+        sr.querySelector('.bqq-fab').click();
+        await new Promise(function (r) { setTimeout(r, 80); });
+        log('hit_open_probe', hit(pcx, pcy));
+        sr.querySelector('.bqq-mask').click();
+        await new Promise(function (r) { setTimeout(r, 80); });
+        log('hit_after_close', hit(pcx, pcy));
+        var hitEl2 = document.elementFromPoint(pcx, pcy);
+        if (hitEl2) hitEl2.click();
+        log('probe_clicks_after_close', window.__probeClicks);
+      }
+
+      // —— 卡片渲染 ——
+      var cv = document.createElement('canvas');
+      cv.width = 640;
+      cv.height = 360;
+      var cx = cv.getContext('2d');
+      var g = cx.createLinearGradient(0, 0, 640, 360);
+      g.addColorStop(0, '#1e6fff');
+      g.addColorStop(1, '#8a2be2');
+      cx.fillStyle = g;
+      cx.fillRect(0, 0, 640, 360);
+      cx.fillStyle = '#fff';
+      cx.font = '700 88px system-ui, sans-serif';
+      cx.fillText('BILIBILI', 60, 210);
+      var coverDataUrl = cv.toDataURL('image/png');
+
+      var payload = BQQCore.buildPayload({
+        url: location.href,
+        title: '【4K】B站分享到QQ卡片效果测试_哔哩哔哩_bilibili',
+        up: '测试UP主',
+        cover: coverDataUrl,
+        playRaw: '123.4万',
+        duration: 3723,
+        desc: '这是一段用于验证简介排版与截断的测试文案，中文与 English mixed text 都要能正常换行。'
+      });
+      log('payload_title', payload.title);
+      log('payload_play', payload.play);
+      log('payload_duration', payload.duration);
+      log('qq_url', BQQCore.buildQqShareUrl(payload).slice(0, 160));
+
+      var r = await BQQCard.renderCard(payload, { scale: 2, coverDataUrl: coverDataUrl });
+      document.getElementById('shot').appendChild(r.canvas);
+      log('canvas_size', [r.canvas.width, r.canvas.height]);
+      log('png_len', r.dataUrl.length);
+
+      var actx = r.canvas.getContext('2d');
+      log('px_cover_center', rgba(actx, 300, 200)); // 封面内（逻辑 150,100，×2）
+      log('px_card_blank', rgba(actx, 1240, 120)); // 右侧空白 → 白
+      log('px_outside_corner', rgba(actx, 2, 2)); // 圆角外 → 透明
+      log('px_footer_line', rgba(actx, 640, 636)); // 页脚分隔线 y=318×2
+      log('px_badge_center', rgba(actx, 548, 332)); // 时长角标（逻辑 x≈244..304,y≈154..178，×2）
+
+      var dark = 0;
+      for (var y = 80; y < 260; y += 3) {
+        for (var x = 690; x < 1240; x += 3) {
+          var d = rgba(actx, x, y);
+          if (d[3] === 255 && d[0] < 130 && d[1] < 130 && d[2] < 130) dark++;
+        }
+      }
+      log('title_dark_pixels', dark);
+
+      report.ok =
+        report.ready === '1' &&        report.vid === 'BV1xx411c7mD' &&
+        report.panel_hosted &&
+        report.panel_title === '【测试】卡片分享演示' &&
+        report.panel_meta.indexOf('测试UP主') >= 0 &&
+        report.panel_meta.indexOf('123.4万播放') >= 0 &&
+        report.panel_meta.indexOf('1:02:03') >= 0 &&
+        (report.panel_cover === null || report.panel_cover.indexOf('https://i0.hdslb.com') === 0) &&
+        report.panel_actions.length === 4 &&
+        report.action_message_type === 'BQQ_OPEN_QQ' &&
+        report.action_message_url.indexOf('BV1xx411c7mD') > 0 &&
+        report.toast === '已打开 QQ 分享页，选择好友即可发送卡片' &&
+        report.canvas_size[0] === 1280 &&
+        report.canvas_size[1] === 760 &&
+        report.title_dark_pixels > 50 &&
+        near(report.px_card_blank, [255, 255, 255, 255]) &&
+        report.px_outside_corner[3] === 0 &&
+        report.px_badge_center[0] < 90 && report.px_badge_center[2] < 90 &&
+        report.px_cover_center[0] < 200 && report.px_cover_center[2] > 120 && // 蓝色封面确实画进去了
+        // —— 面板不得吃掉页面点击（曾经的真实 bug）——
+        report.hit_closed_probe.tag === 'BUTTON' && report.hit_closed_probe.shadow === false &&
+        report.hit_closed_corner.shadow === false &&
+        report.hit_closed_center.shadow === false &&
+        report.probe_clicks_closed === 1 &&
+        report.hit_open_probe.shadow === true &&
+        report.hit_after_close.tag === 'BUTTON' && report.hit_after_close.shadow === false &&
+        report.probe_clicks_after_close === 2;
+    } catch (e) {
+      report.ok = false;
+      report.error = String((e && e.stack) || e);
+    }
+    finish();
+  })();
+})();
+</script>
+</body>
+</html>
